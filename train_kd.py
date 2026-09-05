@@ -1,5 +1,5 @@
 """
-knowledge-distillation-expr
+Knowledge Distillation
 
 - Mock teacher: larger MLP, pre-trained with plain cross-entropy.
 - Mock student: smaller MLP, trained with train_knowledge_distillation below.
