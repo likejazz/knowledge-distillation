@@ -1,13 +1,10 @@
-"""End-to-end runnable knowledge-distillation demo.
+"""
+knowledge-distillation-expr
 
 - Mock teacher: larger MLP, pre-trained with plain cross-entropy.
 - Mock student: smaller MLP, trained with train_knowledge_distillation below.
 - Synthetic 2D, 3-class dataset (torch only, no extra deps).
 - Saves a loss/accuracy chart PNG after training.
-
-Run:
-    uv sync
-    uv run python train_kd.py
 """
 
 import matplotlib
