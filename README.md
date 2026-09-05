@@ -13,8 +13,8 @@ End-to-end knowledge distillation demo with a mock teacher (large MLP) and stude
 ## Run
 
 ```bash
-uv sync
-uv run python train_kd.py
+$ uv sync
+$ uv run python train_kd.py
 ```
 
 ## Data

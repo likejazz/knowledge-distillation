@@ -10,12 +10,11 @@ Run:
     uv run python train_kd.py
 """
 
+import matplotlib
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import DataLoader, TensorDataset, random_split
-
-import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -28,12 +27,8 @@ TEACHER_EPOCHS = 30
 DISTILL_EPOCHS = 20
 T = 3.0
 ALPHA = 0.1
-LR = 1e-2
+TEACHER_LR = 1e-2
 DISTILL_LR = 3e-4
-CHART_PATH = "kd_training_curve.png"
-DATA_CHART_PATH = "synthetic_data.png"
-
-DEVICE = torch.device("cuda")
 
 
 def train_knowledge_distillation(
@@ -52,6 +47,7 @@ def train_knowledge_distillation(
     """
     teacher.eval()
     student.train()
+    loss = nn.CrossEntropyLoss()
 
     sum_total, sum_hard, sum_soft, n_batches = 0.0, 0.0, 0.0, 0
 
@@ -68,7 +64,7 @@ def train_knowledge_distillation(
         student_logits = student(data)
 
         # 2. Second objective: cross-entropy with the correct labels at T=1.
-        hard_loss = nn.CrossEntropyLoss()(student_logits, target)
+        hard_loss = loss(student_logits, target)
 
         # 3. First objective: cross-entropy with the soft targets at T
         # (Hinton et al., Sec. 2).
@@ -88,13 +84,13 @@ def train_knowledge_distillation(
         soft_loss = soft_ce * (T**2)
 
         # 4. Combined loss
-        loss = (alpha * hard_loss) + ((1.0 - alpha) * soft_loss)
+        total_loss = (alpha * hard_loss) + ((1.0 - alpha) * soft_loss)
 
         # 5. Backward pass
-        loss.backward()
+        total_loss.backward()
         optimizer.step()
 
-        sum_total += loss.item()
+        sum_total += total_loss.item()
         sum_hard += hard_loss.item()
         sum_soft += soft_loss.item()
         n_batches += 1
@@ -169,22 +165,22 @@ def accuracy(model, loader, device):
     return correct / total
 
 
-def pretrain_teacher(teacher, loader, device, epochs=TEACHER_EPOCHS, lr=LR):
+def pretrain_teacher(teacher, loader, device, epochs=TEACHER_EPOCHS, lr=TEACHER_LR):
     teacher.train()
-    opt = torch.optim.Adam(teacher.parameters(), lr=lr)
-    ce = nn.CrossEntropyLoss()
+    optimizer = torch.optim.Adam(teacher.parameters(), lr=lr)
+    loss = nn.CrossEntropyLoss()
     for _ in range(epochs):
         for data, target in loader:
             data, target = (
                 data.to(device, non_blocking=True),
                 target.to(device, non_blocking=True),
             )
-            opt.zero_grad()
-            ce(teacher(data), target).backward()
-            opt.step()
+            optimizer.zero_grad()
+            loss(teacher(data), target).backward()
+            optimizer.step()
 
 
-def plot_synthetic_data(X, y, path=DATA_CHART_PATH):
+def plot_synthetic_data(X, y):
     """Scatter plot of the 2D synthetic blobs, colored by class label."""
     X_cpu, y_cpu = X.detach().cpu(), y.detach().cpu()
     fig, ax = plt.subplots(figsize=(6, 5))
@@ -206,11 +202,11 @@ def plot_synthetic_data(X, y, path=DATA_CHART_PATH):
     ax.grid(alpha=0.3)
     ax.set_aspect("equal", adjustable="datalim")
     fig.tight_layout()
-    fig.savefig(path, dpi=150)
+    fig.savefig("synthetic_data.png", dpi=150)
     plt.close(fig)
 
 
-def plot_history(history, path=CHART_PATH):
+def plot_history(history):
     loss_epochs = list(range(1, len(history["total"]) + 1))
     # student_acc[0] is epoch 0 = before distillation.
     acc_epochs = list(range(len(history["student_acc"])))
@@ -238,7 +234,7 @@ def plot_history(history, path=CHART_PATH):
     ax_acc.grid(alpha=0.3)
 
     fig.tight_layout()
-    fig.savefig(path, dpi=150)
+    fig.savefig("kd_training_curve.png", dpi=150)
     plt.close(fig)
 
 
@@ -248,12 +244,12 @@ def main():
 
     torch.manual_seed(SEED)
     torch.cuda.manual_seed_all(SEED)
-    device = DEVICE
+    device = torch.device("cuda")
     print(f"device: {device} ({torch.cuda.get_device_name(device)})")
 
     X, y = make_synthetic_data()
     plot_synthetic_data(X, y)
-    print(f"data chart saved to {DATA_CHART_PATH}")
+    print("data chart saved to synthetic_data.png")
     n_train = int(0.8 * len(X))
     train_ds, test_ds = random_split(
         TensorDataset(X, y),
@@ -305,7 +301,7 @@ def main():
         )
 
     plot_history(history)
-    print(f"chart saved to {CHART_PATH}")
+    print("chart saved to kd_training_curve.png")
 
 
 if __name__ == "__main__":
