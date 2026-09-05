@@ -4,7 +4,7 @@ End-to-end knowledge distillation demo with a mock teacher (large MLP) and stude
 
 ## Method (Hinton et al., 2015)
 
-`train_knowledge_distillation()` in [train_kd.py](/home/sangpark/workspace/github.com/likejazz/knowledge-distillation-expr/train_kd.py:39) follows Section 2 of *Distilling the Knowledge in a Neural Network*:
+`train_knowledge_distillation()` in `train_kd.py` follows Section 2 of *Distilling the Knowledge in a Neural Network*:
 
 - Hard loss: standard cross-entropy of student logits (T=1) against true labels.
 - Soft loss: `T^2 * C` where `C = -sum(p * log q)` is the cross-entropy with soft targets `p = softmax(teacher / T)`, `log q = log_softmax(student / T)`. Teacher is frozen (`eval` + `no_grad`) and both distributions use the same temperature `T = 3.0`. The `T^2` factor compensates for the `1/T^2` shrinking of soft-target gradients (Eqs. 3–4).
