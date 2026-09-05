@@ -1,0 +1,12 @@
+[project]
+name = "distill_expr"
+version = "0.1.0"
+description = "Knowledge distillation experiments (mock teacher/student MLP demo)"
+requires-python = ">=3.14"
+dependencies = [
+    "torch==2.14",
+    "matplotlib==3.11.1",
+]
+
+[tool.uv]
+package = false
