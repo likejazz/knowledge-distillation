@@ -32,14 +32,29 @@ DISTILL_LR = 3e-4
 
 
 def train_knowledge_distillation(
-    teacher, student, train_loader, optimizer, epoch, device, T=3.0, alpha=0.1
+    teacher, student, train_loader, optimizer, device, T=3.0, alpha=0.1
 ):
     """
+    Knowledge distillation exactly as in Hinton, Vinyals & Dean (2015),
+    "Distilling the Knowledge in a Neural Network", Sec. 2 and Sec. 2.1.
+
+    Notation follows the paper:
+        v_i : logits of the cumbersome model (teacher)
+        z_i : logits of the distilled model (student)
+        p_i : soft targets  = softmax(v / T)          (Eq. 1 applied to v)
+        q_i : student soft probabilities = softmax(z / T)  (Eq. 1 applied to z)
+        T   : temperature
+        C   : cross-entropy between p and q, C = -sum_i p_i log q_i
+        N   : number of classes
+
     Args:
-        teacher: Pre-trained teacher model (in eval mode)
-        student: Student model to be trained
-        T: Temperature hyperparameter for softening probability distributions
-        alpha: Weight assigned to the standard cross-entropy loss (hard targets)
+        teacher: Pre-trained cumbersome model (frozen, eval mode)
+        student: Distilled model to be trained
+        T: Temperature used in the softmax of BOTH models while distilling.
+           After training the student is used at T = 1 (see accuracy()).
+        alpha: Weight on the second objective (cross-entropy with the correct
+           labels). The paper recommends a "considerably lower weight" on it,
+           hence the default 0.1; the soft objective gets (1 - alpha).
 
     Returns:
         dict with averaged 'total', 'hard', 'soft' losses for the epoch
@@ -47,46 +62,47 @@ def train_knowledge_distillation(
     """
     teacher.eval()
     student.train()
-    loss = nn.CrossEntropyLoss()
 
     sum_total, sum_hard, sum_soft, n_batches = 0.0, 0.0, 0.0, 0
 
-    for _, (data, target) in enumerate(train_loader):
+    for data, target in train_loader:
         data, target = (
             data.to(device, non_blocking=True),
             target.to(device, non_blocking=True),
         )
         optimizer.zero_grad()
 
-        # 1. Forward pass with both teacher and student
+        # Logits. v: cumbersome model (no gradient), z: distilled model.
         with torch.no_grad():
-            teacher_logits = teacher(data)
-        student_logits = student(data)
+            v = teacher(data)
+        z = student(data)
 
-        # 2. Second objective: cross-entropy with the correct labels at T=1.
-        hard_loss = loss(student_logits, target)
+        # Eq. (1): q_i = exp(z_i / T) / sum_j exp(z_j / T).
+        # The same high temperature T is used for the soft targets p (from v)
+        # and for the distilled model's q (from z), as required in Sec. 2.
+        p = F.softmax(v / T, dim=-1)
+        log_q = F.log_softmax(z / T, dim=-1)
 
-        # 3. First objective: cross-entropy with the soft targets at T
-        # (Hinton et al., Sec. 2).
-        # Eq. (1): q_i = exp(z_i / T) / sum_j exp(z_j / T), applied with the
-        # same T to teacher logits v (-> p) and student logits z (-> q).
-        p = F.softmax(teacher_logits / T, dim=-1)
-        log_q = F.log_softmax(student_logits / T, dim=-1)
+        # First objective (Sec. 2): cross-entropy with the soft targets,
+        #   C = -sum_i p_i log q_i,
+        # whose gradient w.r.t. the distilled model's logits is Eq. (2):
+        #   dC/dz_i = (1/T) (q_i - p_i).
+        # Averaged over the transfer cases in the batch.
+        C = -(p * log_q).sum(dim=-1).mean()
 
-        # Eq. (2): C = -sum_i p_i log q_i, with gradient
-        # dC/dz_i = (q_i - p_i) / T.
-        soft_ce = -(p * log_q).sum(dim=-1).mean()
+        # Sec. 2.1, Eq. (3)-(4): for T large relative to the logits and
+        # zero-meaned logits, dC/dz_i ~= (z_i - v_i) / (N T^2), i.e. the
+        # soft-target gradients scale as 1/T^2. The paper therefore multiplies
+        # the soft objective by T^2 when hard and soft targets are combined.
+        soft_loss = (T**2) * C
 
-        # Eq. (3)-(4): at high T with zero-meaned logits,
-        # dC/dz_i ~= (z_i - v_i) / (N * T^2), i.e. soft-target gradients
-        # scale as 1/T^2, so the paper multiplies the soft objective by T^2
-        # to keep the hard/soft balance invariant to T.
-        soft_loss = soft_ce * (T**2)
+        # Second objective (Sec. 2): cross-entropy with the correct labels,
+        # computed from exactly the same logits z but at a temperature of 1.
+        hard_loss = F.cross_entropy(z, target)
 
-        # 4. Combined loss
-        total_loss = (alpha * hard_loss) + ((1.0 - alpha) * soft_loss)
+        # Weighted average of the two objective functions (Sec. 2).
+        total_loss = (1.0 - alpha) * soft_loss + alpha * hard_loss
 
-        # 5. Backward pass
         total_loss.backward()
         optimizer.step()
 
@@ -214,7 +230,7 @@ def plot_history(history):
 
     ax_loss.plot(loss_epochs, history["total"], label="total (combined)")
     ax_loss.plot(loss_epochs, history["hard"], label="hard (CE)")
-    ax_loss.plot(loss_epochs, history["soft"], label="soft (KL x T^2)")
+    ax_loss.plot(loss_epochs, history["soft"], label="soft (CE x T^2)")
     ax_loss.set_xlabel("distill epoch")
     ax_loss.set_ylabel("loss")
     ax_loss.set_title("Knowledge distillation losses")
@@ -239,9 +255,6 @@ def plot_history(history):
 
 
 def main():
-    if not torch.cuda.is_available():
-        raise RuntimeError("A CUDA build of torch and an NVIDIA GPU are required.")
-
     torch.manual_seed(SEED)
     torch.cuda.manual_seed_all(SEED)
     device = torch.device("cuda")
@@ -284,7 +297,6 @@ def main():
             student,
             train_loader,
             optimizer,
-            epoch,
             device,
             T=T,
             alpha=ALPHA,
