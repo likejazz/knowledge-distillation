@@ -1,5 +1,5 @@
 [project]
-name = "distill_expr"
+name = "distill-expr"
 version = "0.1.0"
 description = "Knowledge distillation experiments (mock teacher/student MLP demo)"
 requires-python = ">=3.14"
