@@ -181,7 +181,7 @@ def accuracy(model, loader, device):
 def pretrain_teacher(teacher, loader, device, epochs=TEACHER_EPOCHS, lr=TEACHER_LR):
     teacher.train()
     optimizer = torch.optim.Adam(teacher.parameters(), lr=lr)
-    loss = nn.CrossEntropyLoss()
+    criterion = nn.CrossEntropyLoss()
     for _ in range(epochs):
         for data, target in loader:
             data, target = (
@@ -189,7 +189,7 @@ def pretrain_teacher(teacher, loader, device, epochs=TEACHER_EPOCHS, lr=TEACHER_
                 target.to(device, non_blocking=True),
             )
             optimizer.zero_grad()
-            loss(teacher(data), target).backward()
+            criterion(teacher(data), target).backward()
             optimizer.step()
 
 
